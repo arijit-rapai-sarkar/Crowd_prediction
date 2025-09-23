@@ -13,7 +13,7 @@ class StationCreate(StationBase):
     pass
 
 class StationResponse(StationBase):
-    id: int
+    id: str
     created_at: datetime
     current_crowd_level: Optional[float] = None
     

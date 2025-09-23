@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 class CrowdReportBase(BaseModel):
-    station_id: int
+    station_id: str
     crowd_level: int = Field(..., ge=1, le=5)
     description: Optional[str] = None
 
@@ -11,10 +11,8 @@ class CrowdReportCreate(CrowdReportBase):
     pass
 
 class CrowdReportResponse(CrowdReportBase):
-    id: int
-    user_id: int
-    temperature: Optional[float] = None
-    weather_condition: Optional[str] = None
+    id: str
+    user_id: str
     created_at: datetime
     
     class Config:

@@ -1,81 +1,143 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from typing import List
-from ..database import get_db
-from ..models import Station, CrowdReport
+from bson import ObjectId
+from ..database import get_database
+from ..models.station import Station
+from ..models.crowd_report import CrowdReport
 from ..schemas.station import StationCreate, StationResponse
 from ..utils.dependencies import get_current_user
-from sqlalchemy import func
 from datetime import datetime, timedelta
+import pymongo
 
 router = APIRouter(prefix="/api/stations", tags=["stations"])
 
 @router.get("/", response_model=List[StationResponse])
-def get_stations(
+async def get_stations(
     skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db)
+    limit: int = 100
 ):
-    stations = db.query(Station).offset(skip).limit(limit).all()
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
     
-    # Add current crowd level
+    # Get stations from MongoDB
+    cursor = db.stations.find().skip(skip).limit(limit)
+    stations = await cursor.to_list(length=limit)
+    
+    # Add current crowd level for each station
     result = []
     for station in stations:
         # Get average crowd level from last hour
-        last_hour = datetime.now() - timedelta(hours=1)
-        avg_crowd = db.query(func.avg(CrowdReport.crowd_level)).filter(
-            CrowdReport.station_id == station.id,
-            CrowdReport.created_at >= last_hour
-        ).scalar()
+        last_hour = datetime.utcnow() - timedelta(hours=1)
+        pipeline = [
+            {
+                "$match": {
+                    "station_id": str(station["_id"]),
+                    "created_at": {"$gte": last_hour}
+                }
+            },
+            {
+                "$group": {
+                    "_id": None,
+                    "avg_crowd": {"$avg": "$crowd_level"}
+                }
+            }
+        ]
+        
+        crowd_result = await db.crowd_reports.aggregate(pipeline).to_list(1)
+        avg_crowd = crowd_result[0]["avg_crowd"] if crowd_result else None
         
         station_dict = {
-            "id": station.id,
-            "name": station.name,
-            "line": station.line,
-            "latitude": station.latitude,
-            "longitude": station.longitude,
-            "station_type": station.station_type,
-            "created_at": station.created_at,
-            "current_crowd_level": float(avg_crowd) if avg_crowd else None
+            "id": str(station["_id"]),
+            "name": station["name"],
+            "line": station["line"],
+            "latitude": station["latitude"],
+            "longitude": station["longitude"],
+            "station_type": station["station_type"],
+            "created_at": station["created_at"],
+            "current_crowd_level": round(float(avg_crowd), 2) if avg_crowd else None
         }
         result.append(station_dict)
     
     return result
 
 @router.get("/{station_id}", response_model=StationResponse)
-def get_station(station_id: int, db: Session = Depends(get_db)):
-    station = db.query(Station).filter(Station.id == station_id).first()
+async def get_station(station_id: str):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+    
+    # Validate ObjectId
+    try:
+        obj_id = ObjectId(station_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid station ID format")
+    
+    station = await db.stations.find_one({"_id": obj_id})
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")
     
     # Get current crowd level
-    last_hour = datetime.now() - timedelta(hours=1)
-    avg_crowd = db.query(func.avg(CrowdReport.crowd_level)).filter(
-        CrowdReport.station_id == station.id,
-        CrowdReport.created_at >= last_hour
-    ).scalar()
+    last_hour = datetime.utcnow() - timedelta(hours=1)
+    pipeline = [
+        {
+            "$match": {
+                "station_id": station_id,
+                "created_at": {"$gte": last_hour}
+            }
+        },
+        {
+            "$group": {
+                "_id": None,
+                "avg_crowd": {"$avg": "$crowd_level"}
+            }
+        }
+    ]
+    
+    crowd_result = await db.crowd_reports.aggregate(pipeline).to_list(1)
+    avg_crowd = crowd_result[0]["avg_crowd"] if crowd_result else None
     
     station_dict = {
-        "id": station.id,
-        "name": station.name,
-        "line": station.line,
-        "latitude": station.latitude,
-        "longitude": station.longitude,
-        "station_type": station.station_type,
-        "created_at": station.created_at,
-        "current_crowd_level": float(avg_crowd) if avg_crowd else None
+        "id": str(station["_id"]),
+        "name": station["name"],
+        "line": station["line"],
+        "latitude": station["latitude"],
+        "longitude": station["longitude"],
+        "station_type": station["station_type"],
+        "created_at": station["created_at"],
+        "current_crowd_level": round(float(avg_crowd), 2) if avg_crowd else None
     }
     
     return station_dict
 
 @router.post("/", response_model=StationResponse)
-def create_station(
+async def create_station(
     station: StationCreate,
-    db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    db_station = Station(**station.dict())
-    db.add(db_station)
-    db.commit()
-    db.refresh(db_station)
-    return db_station
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+    
+    # Create station document
+    station_dict = station.dict()
+    station_dict["created_at"] = datetime.utcnow()
+    
+    result = await db.stations.insert_one(station_dict)
+    
+    # Return created station
+    created_station = await db.stations.find_one({"_id": result.inserted_id})
+    
+    if not created_station:
+        raise HTTPException(status_code=500, detail="Failed to create station")
+    
+    return {
+        "id": str(created_station["_id"]),
+        "name": created_station["name"],
+        "line": created_station["line"],
+        "latitude": created_station["latitude"],
+        "longitude": created_station["longitude"],
+        "station_type": created_station["station_type"],
+        "created_at": created_station["created_at"],
+        "current_crowd_level": None
+    }

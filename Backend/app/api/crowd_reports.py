@@ -1,67 +1,113 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timedelta
-from ..database import get_db
-from ..models import CrowdReport, Station
+from bson import ObjectId
+from ..database import get_database
+from ..models.crowd_report import CrowdReport
+from ..models.station import Station
 from ..schemas.crowd_report import CrowdReportCreate, CrowdReportResponse
 from ..utils.dependencies import get_current_user
-from ..services.weather_service import weather_service
 
 router = APIRouter(prefix="/api/crowd-reports", tags=["crowd-reports"])
 
 @router.post("/", response_model=CrowdReportResponse)
 async def create_crowd_report(
     report: CrowdReportCreate,
-    db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+    
     # Verify station exists
-    station = db.query(Station).filter(Station.id == report.station_id).first()
+    try:
+        station_obj_id = ObjectId(report.station_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid station ID format")
+    
+    station = await db.stations.find_one({"_id": station_obj_id})
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")
     
-    # Get weather data
-    weather_data = await weather_service.get_weather(
-        station.latitude, 
-        station.longitude
-    )
+    # Create crowd report document
+    report_dict = {
+        "station_id": report.station_id,
+        "user_id": str(current_user.id),
+        "crowd_level": report.crowd_level,
+        "description": report.description,
+        "created_at": datetime.utcnow()
+    }
     
-    db_report = CrowdReport(
-        station_id=report.station_id,
-        user_id=current_user.id,
-        crowd_level=report.crowd_level,
-        description=report.description,
-        temperature=weather_data["temperature"] if weather_data else None,
-        weather_condition=weather_data["condition"] if weather_data else None
-    )
+    result = await db.crowd_reports.insert_one(report_dict)
     
-    db.add(db_report)
-    db.commit()
-    db.refresh(db_report)
-    return db_report
+    # Return created report
+    created_report = await db.crowd_reports.find_one({"_id": result.inserted_id})
+    if not created_report:
+        raise HTTPException(status_code=500, detail="Failed to create crowd report")
+    
+    return {
+        "id": str(created_report["_id"]),
+        "station_id": created_report["station_id"],
+        "user_id": created_report["user_id"],
+        "crowd_level": created_report["crowd_level"],
+        "description": created_report.get("description"),
+        "created_at": created_report["created_at"]
+    }
 
 @router.get("/station/{station_id}", response_model=List[CrowdReportResponse])
-def get_station_reports(
-    station_id: int,
-    hours: int = 24,
-    db: Session = Depends(get_db)
+async def get_station_reports(
+    station_id: str,
+    hours: int = 24
 ):
-    since = datetime.now() - timedelta(hours=hours)
-    reports = db.query(CrowdReport).filter(
-        CrowdReport.station_id == station_id,
-        CrowdReport.created_at >= since
-    ).order_by(CrowdReport.created_at.desc()).all()
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
     
-    return reports
+    # Validate station ID
+    try:
+        ObjectId(station_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid station ID format")
+    
+    since = datetime.utcnow() - timedelta(hours=hours)
+    cursor = db.crowd_reports.find({
+        "station_id": station_id,
+        "created_at": {"$gte": since}
+    }).sort("created_at", -1)
+    
+    reports = await cursor.to_list(length=100)
+    
+    return [
+        {
+            "id": str(report["_id"]),
+            "station_id": report["station_id"],
+            "user_id": report["user_id"],
+            "crowd_level": report["crowd_level"],
+            "description": report.get("description"),
+            "created_at": report["created_at"]
+        }
+        for report in reports
+    ]
 
 @router.get("/recent", response_model=List[CrowdReportResponse])
-def get_recent_reports(
-    limit: int = 20,
-    db: Session = Depends(get_db)
+async def get_recent_reports(
+    limit: int = 20
 ):
-    reports = db.query(CrowdReport).order_by(
-        CrowdReport.created_at.desc()
-    ).limit(limit).all()
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
     
-    return reports
+    cursor = db.crowd_reports.find().sort("created_at", -1).limit(limit)
+    reports = await cursor.to_list(length=limit)
+    
+    return [
+        {
+            "id": str(report["_id"]),
+            "station_id": report["station_id"],
+            "user_id": report["user_id"],
+            "crowd_level": report["crowd_level"],
+            "description": report.get("description"),
+            "created_at": report["created_at"]
+        }
+        for report in reports
+    ]

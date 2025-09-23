@@ -1,62 +1,120 @@
-.dashboard {
-  padding: 20px;
-  background: #f9f9f9;
-  min-height: 100vh;
+﻿.dashboard {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
 }
 
 .dashboard h2 {
-  margin-bottom: 20px;
-  text-align: center;
-  color: #333;
+  color: #0f172a;
+  font-size: 2rem;
 }
 
-.dashboard-summary {
-  background: #fff;
-  padding: 15px;
-  border-radius: 10px;
-  margin-bottom: 25px;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.08);
-}
-
-.dashboard-chart {
-  margin-bottom: 30px;
-  background: #fff;
-  padding: 15px;
-  border-radius: 10px;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.08);
-}
-
-.dashboard-stations {
+.stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+}
+
+.stat-card {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 16px;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.stat-card h3 {
+  font-size: 0.9rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #6366f1;
+}
+
+.dashboard-content {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 1.5rem;
+}
+
+.stations-section,
+.chart-section {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 16px;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.08);
+}
+
+.stations-section h3,
+.chart-section h3 {
+  margin-bottom: 1rem;
+  color: #0f172a;
+}
+
+.stations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
 }
 
 .station-card {
-  background: #fff;
-  padding: 15px;
-  border-radius: 10px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  background: #f8fafc;
+  border-radius: 12px;
+  padding: 1.25rem;
   text-decoration: none;
   color: inherit;
-  transition: transform 0.2s ease;
+  border-left: 4px solid #cbd5f5;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.05);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .station-card:hover {
   transform: translateY(-3px);
+  box-shadow: 0 15px 35px rgba(15, 23, 42, 0.12);
 }
 
 .station-card h4 {
-  margin-bottom: 10px;
-  font-size: 18px;
-  color: #1976d2;
+  margin: 0 0 0.5rem;
+  color: #1f2937;
 }
 
-.station-card p {
-  font-weight: bold;
-  margin-bottom: 5px;
+.crowd-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
-.station-card small {
-  color: #666;
+.crowd-level {
+  font-weight: 700;
+}
+
+.crowd-value {
+  font-size: 0.9rem;
+  color: #475569;
+}
+
+.no-data {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-content {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
 }

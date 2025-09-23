@@ -1,14 +1,23 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean
-from sqlalchemy.sql import func
-from ..database import Base
+from pydantic import BaseModel, Field
+from typing import Optional
+from datetime import datetime
 
-class User(Base):
-    __tablename__ = "users"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    username = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+class User(BaseModel):
+    id: Optional[str] = Field(default=None, alias="_id")
+    email: str
+    username: str
+    hashed_password: str
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = None
+
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "example": {
+                "email": "user@example.com",
+                "username": "johndoe",
+                "is_active": True
+            }
+        }
+    }

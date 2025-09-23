@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+motor
+pymongo
+pydantic-settings
+python-jose[cryptography]
+passlib[bcrypt]
+numpy
+scikit-learn
+pandas
+python-multipart
+python-dateutil

@@ -1,15 +1,26 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime
-from sqlalchemy.sql import func
-from ..database import Base
+from pydantic import BaseModel, Field
+from typing import Optional
+from datetime import datetime
 
-class Station(Base):
-    __tablename__ = "stations"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    line = Column(String, nullable=False)
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
-    station_type = Column(String, default="metro")  # metro, bus, train
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+class Station(BaseModel):
+    id: Optional[str] = Field(default=None, alias="_id")
+    name: str
+    line: str
+    latitude: float
+    longitude: float
+    station_type: str = "metro"  # metro, bus, train
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = None
+
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "example": {
+                "name": "Central Station",
+                "line": "Red Line",
+                "latitude": 40.7128,
+                "longitude": -74.0060,
+                "station_type": "metro"
+            }
+        }
+    }

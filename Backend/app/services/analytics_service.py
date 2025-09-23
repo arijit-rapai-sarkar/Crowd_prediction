@@ -1,25 +1,29 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
 from datetime import datetime, timedelta
-from typing import List, Dict
-from ..models import CrowdReport, Station
+from typing import Dict
+from bson import ObjectId
 
 class AnalyticsService:
-    def get_station_analytics(
+    async def get_station_analytics(
         self,
-        db: Session,
-        station_id: int,
+        db,
+        station_id: str,
         days: int = 7
     ) -> Dict:
         """Get analytics for a specific station"""
-        since = datetime.now() - timedelta(days=days)
+        since = datetime.utcnow() - timedelta(days=days)
         
-        reports = db.query(CrowdReport).filter(
-            and_(
-                CrowdReport.station_id == station_id,
-                CrowdReport.created_at >= since
-            )
-        ).all()
+        # Validate station ID
+        try:
+            ObjectId(station_id)
+        except Exception:
+            return {"error": "Invalid station ID format"}
+        
+        # Get reports for the station
+        cursor = db.crowd_reports.find({
+            "station_id": station_id,
+            "created_at": {"$gte": since}
+        })
+        reports = await cursor.to_list(length=1000)
         
         if not reports:
             return {
@@ -28,20 +32,20 @@ class AnalyticsService:
                 "total_reports": 0,
                 "average_crowd_level": 0,
                 "peak_hours": [],
-                "daily_pattern": []
+                "hourly_average": {}
             }
         
         # Calculate statistics
-        crowd_levels = [r.crowd_level for r in reports]
+        crowd_levels = [r["crowd_level"] for r in reports]
         avg_crowd = sum(crowd_levels) / len(crowd_levels)
         
         # Group by hour
         hourly_data = {}
         for report in reports:
-            hour = report.created_at.hour
+            hour = report["created_at"].hour
             if hour not in hourly_data:
                 hourly_data[hour] = []
-            hourly_data[hour].append(report.crowd_level)
+            hourly_data[hour].append(report["crowd_level"])
         
         hourly_avg = {
             hour: sum(levels)/len(levels) 
@@ -61,47 +65,72 @@ class AnalyticsService:
             "total_reports": len(reports),
             "average_crowd_level": round(avg_crowd, 2),
             "peak_hours": sorted(peak_hours),
-            "hourly_average": hourly_avg,
+            "hourly_average": {str(k): round(v, 2) for k, v in hourly_avg.items()},
             "max_crowd_level": max(crowd_levels),
             "min_crowd_level": min(crowd_levels)
         }
     
-    def get_system_overview(self, db: Session) -> Dict:
+    async def get_system_overview(self, db) -> Dict:
         """Get system-wide analytics"""
-        total_stations = db.query(Station).count()
-        total_reports = db.query(CrowdReport).count()
+        # Count total stations and reports
+        total_stations = await db.stations.count_documents({})
+        total_reports = await db.crowd_reports.count_documents({})
         
         # Recent activity
-        last_24h = datetime.now() - timedelta(hours=24)
-        recent_reports = db.query(CrowdReport).filter(
-            CrowdReport.created_at >= last_24h
-        ).count()
+        last_24h = datetime.utcnow() - timedelta(hours=24)
+        recent_reports = await db.crowd_reports.count_documents({
+            "created_at": {"$gte": last_24h}
+        })
         
-        # Most crowded stations
-        crowded_stations = db.query(
-            Station.id,
-            Station.name,
-            func.avg(CrowdReport.crowd_level).label('avg_crowd')
-        ).join(
-            CrowdReport
-        ).group_by(
-            Station.id, Station.name
-        ).order_by(
-            func.avg(CrowdReport.crowd_level).desc()
-        ).limit(5).all()
+        # Most crowded stations - using aggregation pipeline
+        pipeline = [
+            {
+                "$group": {
+                    "_id": "$station_id",
+                    "avg_crowd": {"$avg": "$crowd_level"},
+                    "count": {"$sum": 1}
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "stations",
+                    "localField": "_id",
+                    "foreignField": "_id",
+                    "as": "station_info"
+                }
+            },
+            {
+                "$match": {
+                    "station_info": {"$ne": []}
+                }
+            },
+            {
+                "$sort": {"avg_crowd": -1}
+            },
+            {
+                "$limit": 5
+            }
+        ]
+        
+        crowded_stations_cursor = db.crowd_reports.aggregate(pipeline)
+        crowded_stations = await crowded_stations_cursor.to_list(5)
+        
+        # Format the results
+        formatted_crowded_stations = []
+        for station_data in crowded_stations:
+            if station_data.get("station_info") and len(station_data["station_info"]) > 0:
+                station_info = station_data["station_info"][0]
+                formatted_crowded_stations.append({
+                    "id": str(station_data["_id"]),
+                    "name": station_info["name"],
+                    "average_crowd": round(float(station_data["avg_crowd"]), 2)
+                })
         
         return {
             "total_stations": total_stations,
             "total_reports": total_reports,
             "reports_last_24h": recent_reports,
-            "most_crowded_stations": [
-                {
-                    "id": s[0],
-                    "name": s[1],
-                    "average_crowd": round(float(s[2]), 2)
-                }
-                for s in crowded_stations
-            ]
+            "most_crowded_stations": formatted_crowded_stations
         }
 
 analytics_service = AnalyticsService()
