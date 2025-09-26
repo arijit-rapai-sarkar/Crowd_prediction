@@ -21,5 +21,7 @@
 <p align="center">
 
 **Made by [Surajit](https://github.com/Surajit09636) | [Arijit](https://github.com/arijit-rapai-sarkar)**
+**Contributed by [Abhra](https://github.com/abhrajyoti-01)**
+
 
 </p>
