@@ -1,10 +1,11 @@
 # backend/init_db.py
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import random
 from app.database import get_sync_database
 from app.utils.auth import get_password_hash
 from bson import ObjectId
+import os
 
 def init_mongodb():
     """Initialize MongoDB with collections and sample data"""
@@ -23,124 +24,68 @@ def init_mongodb():
         db.predictions.create_index([("station_id", 1), ("prediction_time", -1)])
         
         print("MongoDB indexes created successfully")
-        
+
+        # Safe password (truncate if needed to avoid bcrypt > 72-byte limit)
+        default_password = os.getenv("DEFAULT_PASSWORD", "demo123")[:72]
+
+        # Helper to get UTC datetime (fixes deprecation warning)
+        def utc_now():
+            return datetime.now(timezone.utc)
+
         # Check if stations exist
         if db.stations.count_documents({}) == 0:
-            # Add sample stations
             stations = [
-                {
-                    "name": "Central Station",
-                    "line": "Red Line",
-                    "latitude": 40.7128,
-                    "longitude": -74.0060,
-                    "station_type": "metro",
-                    "created_at": datetime.utcnow()
-                },
-                {
-                    "name": "Downtown Station",
-                    "line": "Blue Line",
-                    "latitude": 40.7580,
-                    "longitude": -73.9855,
-                    "station_type": "metro",
-                    "created_at": datetime.utcnow()
-                },
-                {
-                    "name": "Airport Station",
-                    "line": "Green Line",
-                    "latitude": 40.6413,
-                    "longitude": -73.7781,
-                    "station_type": "train",
-                    "created_at": datetime.utcnow()
-                },
-                {
-                    "name": "University Station",
-                    "line": "Red Line",
-                    "latitude": 40.7295,
-                    "longitude": -73.9965,
-                    "station_type": "metro",
-                    "created_at": datetime.utcnow()
-                },
-                {
-                    "name": "Business District",
-                    "line": "Blue Line",
-                    "latitude": 40.7614,
-                    "longitude": -73.9776,
-                    "station_type": "metro",
-                    "created_at": datetime.utcnow()
-                },
-                {
-                    "name": "Park Avenue",
-                    "line": "Green Line",
-                    "latitude": 40.7489,
-                    "longitude": -73.9680,
-                    "station_type": "bus",
-                    "created_at": datetime.utcnow()
-                },
-                {
-                    "name": "Harbor Station",
-                    "line": "Yellow Line",
-                    "latitude": 40.7074,
-                    "longitude": -74.0113,
-                    "station_type": "metro",
-                    "created_at": datetime.utcnow()
-                },
-                {
-                    "name": "Stadium Station",
-                    "line": "Red Line",
-                    "latitude": 40.7505,
-                    "longitude": -73.9934,
-                    "station_type": "metro",
-                    "created_at": datetime.utcnow()
-                }
+                {"name": "Central Station", "line": "Red Line", "latitude": 40.7128, "longitude": -74.0060,
+                 "station_type": "metro", "created_at": utc_now()},
+                {"name": "Downtown Station", "line": "Blue Line", "latitude": 40.7580, "longitude": -73.9855,
+                 "station_type": "metro", "created_at": utc_now()},
+                {"name": "Airport Station", "line": "Green Line", "latitude": 40.6413, "longitude": -73.7781,
+                 "station_type": "train", "created_at": utc_now()},
+                {"name": "University Station", "line": "Red Line", "latitude": 40.7295, "longitude": -73.9965,
+                 "station_type": "metro", "created_at": utc_now()},
+                {"name": "Business District", "line": "Blue Line", "latitude": 40.7614, "longitude": -73.9776,
+                 "station_type": "metro", "created_at": utc_now()},
+                {"name": "Park Avenue", "line": "Green Line", "latitude": 40.7489, "longitude": -73.9680,
+                 "station_type": "bus", "created_at": utc_now()},
+                {"name": "Harbor Station", "line": "Yellow Line", "latitude": 40.7074, "longitude": -74.0113,
+                 "station_type": "metro", "created_at": utc_now()},
+                {"name": "Stadium Station", "line": "Red Line", "latitude": 40.7505, "longitude": -73.9934,
+                 "station_type": "metro", "created_at": utc_now()},
             ]
             
             result = db.stations.insert_many(stations)
             print(f"Sample stations added to database: {len(result.inserted_ids)} stations")
-            
-            # Add sample crowd reports for demonstration
             station_ids = [str(id) for id in result.inserted_ids]
             
-            # Create demo user first
+            # Create demo user
             demo_user_id = None
             if db.users.count_documents({"username": "demo"}) == 0:
                 demo_user = {
                     "email": "demo@example.com",
                     "username": "demo",
-                    "hashed_password": get_password_hash("demo123"),
+                    "hashed_password": get_password_hash(default_password),
                     "is_active": True,
-                    "created_at": datetime.utcnow()
+                    "created_at": utc_now()
                 }
                 demo_result = db.users.insert_one(demo_user)
                 demo_user_id = str(demo_result.inserted_id)
-                print("Demo user created (username: demo, password: demo123)")
+                print(f"Demo user created (username: demo, password: {default_password})")
             else:
                 demo_user = db.users.find_one({"username": "demo"})
                 if demo_user:
                     demo_user_id = str(demo_user["_id"])
             
-            # Generate sample crowd reports over the last 30 days
+            # Generate sample crowd reports for the last 30 days
             crowd_reports = []
             for days_ago in range(30):
-                report_date = datetime.utcnow() - timedelta(days=days_ago)
-                
-                # Generate multiple reports per day for different hours
-                for hour in [8, 12, 17, 20]:  # Peak times
+                report_date = utc_now() - timedelta(days=days_ago)
+                for hour in [8, 12, 17, 20]:
                     report_time = report_date.replace(hour=hour, minute=random.randint(0, 59))
-                    
                     for station_id in station_ids:
-                        # Skip some reports randomly to simulate real data
                         if random.random() < 0.3:
                             continue
-                        
-                        # Generate crowd level based on time patterns
-                        base_crowd = 2.5
-                        if hour in [8, 17]:  # Rush hours
-                            base_crowd = 4.0
-                        elif hour in [12, 20]:  # Lunch/dinner
-                            base_crowd = 3.0
-                        
+                        base_crowd = 4.0 if hour in [8, 17] else (3.0 if hour in [12, 20] else 2.5)
                         crowd_level = max(1, min(5, int(base_crowd + random.uniform(-1, 1))))
-                        
                         crowd_reports.append({
                             "station_id": station_id,
                             "user_id": demo_user_id,
@@ -148,22 +93,21 @@ def init_mongodb():
                             "description": f"Sample crowd report for level {crowd_level}",
                             "created_at": report_time
                         })
-            
             if crowd_reports:
                 db.crowd_reports.insert_many(crowd_reports)
                 print(f"Sample crowd reports added: {len(crowd_reports)} reports")
-        
-        # Check if demo user exists (if stations already existed)
+
+        # Ensure demo user exists even if stations already existed
         if db.users.count_documents({"username": "demo"}) == 0:
             demo_user = {
                 "email": "demo@example.com",
                 "username": "demo",
-                "hashed_password": get_password_hash("demo123"),
+                "hashed_password": get_password_hash(default_password),
                 "is_active": True,
-                "created_at": datetime.utcnow()
+                "created_at": utc_now()
             }
             db.users.insert_one(demo_user)
-            print("Demo user created (username: demo, password: demo123)")
+            print(f"Demo user created (username: demo, password: {default_password})")
         
         print("MongoDB initialized successfully!")
         
